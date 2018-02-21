@@ -1,7 +1,7 @@
 # Alert Manager
 - **Authors**:		Simon Balz <simon@balz.me>, Mika Borner <mika.borner@gmail.com>
 - **Description**:	Extended Splunk Alert Manager with advanced reporting on alerts, workflows (modify assignee, status, severity) and auto-resolve features
-- **Version**: 		1.1
+- **Version**: 		1.0
 
 ## Introduction
 The Alert Manager adds simple incident workflows to Splunk. The general purpose is to provide a common app with dashboards in order to investigate fired alerts or notable events. It can be used with every Splunk alert and works as an extension on top of Splunk's built-in alerting mechanism.
@@ -29,11 +29,6 @@ The Alert Manager adds simple incident workflows to Splunk. The general purpose 
 - The app will be used within customer projects, and improved according to customer and community needs. Development of the app will happen in public. Bugs/Issues and improvement requests can be opened on the project's Github page (<https://github.com/simcen/alert_manager/issues>).
 
 ## Release Notes
-- **v1.1**	/ 	2015-03-12
-	- Fixed support for per-result alert actions
-	- Added support for search results in e-mail templates
-	- Enhanced incident details with description form saved search and selectable list of fields
-	- Bugfixes
 - **v1.0**	/ 	2015-01-19
 	- Major release with e-mail notifications and templates
 	- Lots of bugfixes and enhancements
@@ -75,31 +70,6 @@ The Alert Manager adds simple incident workflows to Splunk. The general purpose 
 	- First working version
 
 ## Changelog
-- **2015-05-04** simon@balz.me
-	- Added support for dynamic template assignement from a field value
-- **2015-05-01** simon@balz.me
-	- Added support for suppression rules
-- **2015-04-23** simon@balz.me
-	- Fixed a bug where multiple notification recipients were not handled correctly
-- **2015-04-06** simon@balz.me
-	- Regression bugfixes
-	- New event for event_handler: "incident_resolved"
-- **2015-04-04** simon@balz.me
-	- Added App logo
-- **2015-04-02** simon@balz.me
-	- Optimized email_template collection structure
-	- Added support for static attachements to be inline-linked from a template	
-- **2015-04-01** simon@balz.me
-	- Added support to use incident result field in notification recipients
-	- Replaced django template parsing by jinja2
-	- Added support to send events when re-assigning an incident in the incident posture dashboard
-- **2015-03-30** simon@balz.me
-	- Fixed E-mail templates view to enable adding new templates
-	- Fixed user settings to provide spare row in table
-- **2015-03-29** simon@balz.me
-	- Introduced Notification Schemes
-	- Introduced Event Handler
-	- Removed E-mail settings which are replaced by notification schemes
 - **2015-02-10** simon@balz.me
 	- Fixed trend timerange to depend on timepicker in incident posture
 - **2015-02-04** simon@balz.me
@@ -120,15 +90,10 @@ The Alert Manager adds simple incident workflows to Splunk. The general purpose 
 Please find the full changelog here: <https://github.com/simcen/alert_manager/wiki/Changelog>.
 
 ## Credits
-Libraries and snippets:
 - Visualization snippets from Splunk 6.x Dashboard Examples app (https://apps.splunk.com/app/1603/)
 - Single value design from Splunk App from AWS (https://apps.splunk.com/app/1274/)
 - Trend indicator design from Splunk App for Microsoft Exchange (https://apps.splunk.com/app/1660/)
 - Handsontable (http://handsontable.com/)
-- Jinja (http://jinja.pocoo.org/)
-- MarkupSafe (https://pypi.python.org/pypi/MarkupSafe)
-
-Friends who helped us:
 - ziegfried (https://github.com/ziegfried/) for support
 - atremar (https://github.com/atremar) for documentation reviews
 
@@ -194,7 +159,6 @@ To add demo data, follow these instructions:
 - The alert manager runs mostly on the search head (since we use the App Key Value Store)
 - Due to the usage of the App Key Value Store, there's no compatibility with Search Head Clustering (SHC) introduced in Splunk v6.2
 - The Alert Manager runs a script every 30 seconds (as a scripted input) to search for incidents that should be resolved after their ttl is reached
-- Even if you forward events from the Search Head to the indexer, be sure to enable the alerts index (or your own one) on the Search Head. Since we talk with the REST API on the Search Head, Splunk requires to have the index enabled when creating events trough the API
 
 ### Alert Manager Settings
 1. Configure global settings in the App's setup page (Manage Apps -> Alert Manager -> Set up)

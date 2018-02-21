@@ -32,6 +32,7 @@ from IncidentContext import *
 from AlertManagerUsers import *
 from CsvLookup import *
 from CsvResultParser import *
+from SuppressionHelper import *
 
 # Write alert metadata to index
 def writeAlertMetadataToIndex(job, incident_id, result_id):
@@ -58,9 +59,10 @@ def getResults(job_path, incident_id):
     return results
 
 # Create New incident to collection
-def createNewIncident(alert_time, incident_id, job_id, result_id, alert, status, ttl, impact, urgency, priority, owner, digest_mode, results):
+def createNewIncident(alert_time, incident_id, job_id, result_id, alert, status, ttl, impact, urgency, priority, owner, digest_mode, results, title):
     alert_time = int(float(util.dt2epoch(util.parseISO(alert_time, True))))
     entry = {}
+    entry['title'] = title
     entry['incident_id'] = incident_id
     entry['alert_time'] = alert_time
     entry['job_id'] = job_id
@@ -87,10 +89,15 @@ def writeIncidentToCollection(entry):
     return response["_key"]
 
 # Autoprevious resolve
-def autoPreviousResolve(alert, job_id):
+def autoPreviousResolve(alert, job_id, title):
     # Auto Previous resolve
     log.info("auto_previous_resolve is active for alert %s, searching for incidents to resolve..." % alert)
-    query = '{  "alert": "'+ alert +'", "$or": [ { "status": "auto_assigned" } , { "status": "new" } ], "job_id": { "$ne": "'+ job_id +'"} }'
+    if title == "":
+        query = '{  "alert": "'+ alert +'", "$or": [ { "status": "auto_assigned" } , { "status": "new" } ], "job_id": { "$ne": "'+ job_id +'"} }'
+    else:
+        log.debug("Using title (%s) to search for incidents to auto previous resolve." % title)
+        query = '{  "title": "'+ title +'", "$or": [ { "status": "auto_assigned" } , { "status": "new" } ], "job_id": { "$ne": "'+ job_id +'"} }'
+
     log.debug("Filter for auto_previous_resolve: %s" % query)
     uri = '/servicesNS/nobody/alert_manager/storage/collections/data/incidents?query=%s' % urllib.quote(query)
     serverResponse, serverContent = rest.simpleRequest(uri, sessionKey=sessionKey)
@@ -246,99 +253,35 @@ def getPriority(impact, urgency):
         log.warn("Unable to get priority. Falling back to default_priority=%s. Error: %s. Line: %s" % (config['default_priority'], exc_type, exc_tb.tb_lineno))
         return config['default_priority']
 
-def compareValue(test_value, comparator, pattern_value):
-    log.debug("compareValue(testvalue=\"%s\", comparator=\"%s\", pattern_value=\"%s\")" % (test_value, comparator, pattern_value))
-    if comparator == ">":
-        return int(test_value) > int(pattern_value)
-    elif comparator == "<":
-        return int(test_value) < int(pattern_value)
-    elif comparator == "=" or comparator == "==" or comparator == "is":
-        return test_value == pattern_value
-    elif comparator == "!=" or comparator == "is not":
-        return test_value != pattern_value        
-    elif comparator == "<=":
-        return int(test_value) <= int(pattern_value)
-    elif comparator == ">=":
-        return int(test_value) >= int(pattern_value)
-    elif comparator == "contains":
-        return bool(re.match(test_value, pattern_value))
-    elif comparator == "does not contain":
-        return not bool(re.match(test_value, pattern_value))
-    elif comparator == "starts with":
-        return bool(re.match("^" + pattern_value + ".*", test_value))
-    elif comparator == "ends with":
-        return bool(re.match(".*" + pattern_value + "$", test_value))
-    else:
-        return False
+def createContext(incident, incident_settings, results):
+    context = { }
+    try:
+        uri = '/services/server/info?output_mode=json'
+        serverResponse, serverContent = rest.simpleRequest(uri, sessionKey=sessionKey)
+        server_info = json.loads(serverContent)
+        if len(server_info) > 0:
+            server_info = server_info["entry"][0]["content"]
 
-def checkSuppression(alert, results, context):
-    log.info("Checking for matching suppression rules for alert=%s" % alert)
-    query = '{  "disabled": false, "$or": [ { "scope": "*" } , { "scope": "'+ alert +'" } ] }'
-    uri = '/servicesNS/nobody/alert_manager/storage/collections/data/suppression_rules?query=%s' % urllib.quote(query)
-    serverResponse, serverContent = rest.simpleRequest(uri, sessionKey=sessionKey)    
+        context.update({ "alert_time" : incident["alert_time"] })
+        context.update({ "owner" : incident["owner"] })
+        context.update({ "name" : incident["alert"] })
+        context.update({ "alert" : { "impact": incident["impact"], "urgency": incident["urgency"], "priority": incident["priority"], "expires": incident["ttl"] } })
+        context.update({ "app" : incident["app"] })
+        context.update({ "category" : incident_settings['category'] })
+        context.update({ "subcategory" : incident_settings['subcategory'] })
+        context.update({ "tags" : incident_settings['tags'] })
+        context.update({ "results_link" : "http://"+server_info["host_fqdn"] + ":8000/app/" + incident["app"] + "/@go?sid=" + incident["job_id"] })
+        context.update({ "view_link" : "http://"+server_info["host_fqdn"] + ":8000/app/" + incident["app"] + "/alert?s=" + urllib.quote("/servicesNS/nobody/"+incident["app"]+"/saved/searches/" + incident["alert"] ) })
+        context.update({ "server" : { "version": server_info["version"], "build": server_info["build"], "serverName": server_info["serverName"] } })
 
-    if len(serverContent) > 0:
-        suppression_rules = json.loads(serverContent)
-        log.debug("Got %s suppression rule(s) matching the scope ('*' or '%s')." % (len(suppression_rules), alert))
-        matches = []
-        unmatching_rules = []
-        rule_names = []
-        for suppression_rule in suppression_rules:
-            rule_names.append(suppression_rule['suppression_title'])
+        if "fields" in results:
+            result_context = { "result" : results["fields"] }
+            context.update(result_context)  
 
-            for rule in suppression_rule["rules"]:
-                log.debug("Rule: suppression_title=\"%s\" field=\"%s\" condition=\"%s\" value=\"%s\"" % (suppression_rule['suppression_title'], rule["field"], rule["condition"], rule["value"]))
+    except Exception as e:
+        log.error("Unexpected Error: %s" % (traceback.format_exc()))
 
-                value_match = re.match("^\$(.*)\$$", rule["value"])
-                if bool(value_match):
-                    value_field_name = value_match.group(1)
-                    if len(results["fields"]) > 0 and value_field_name in results["field_list"]:
-                        rule["value"] =  results["fields"][0][value_field_name]   
-                    else:
-                        log.warn("Invalid suppression rule: value field %s not found in results." % value_field_name)
-
-
-                if rule["field"] == "_time" or rule["field"] == "time":
-                    # FIXME: Change timestamp to real timestamp from incident
-                    match = compareValue(int(time.time()), rule["condition"], rule["value"])
-                    matches.append(match)
-                    if not match:
-                        unmatching_rules.append(rule)
-                        log.debug("Rule %s didn't match." % json.dumps(rule))
-                else:
-                    field_match = re.match("^\$(.*)\$$", rule["field"])
-                    if bool(field_match):
-                        field_name = field_match.group(1)
-                        if field_name in context:
-                            match = compareValue(context[field_name], rule["condition"], rule["value"])
-                            matches.append(match)
-                            if not match:
-                                unmatching_rules.append(rule)
-                                log.debug("Rule %s didn't match." % json.dumps(rule))
-                        elif len(results["fields"]) > 0 and field_name in results["field_list"]:
-                            match = compareValue(results["fields"][0][field_name], rule["condition"], rule["value"])
-                            matches.append(match)
-                            if not match:
-                                unmatching_rules.append(rule)
-                                log.debug("Rule %s didn't match." % json.dumps(rule))
-                        else:
-                            log.warn("Invalid suppression rule: field %s not found in results." % field_name)
-                    else:
-                        log.warn("Suppression rule has an invalid field content format.")
-
-        if len(matches) < 1:
-            log.info("Suppression failed: No rules found.")
-            return False, []
-
-        elif False in matches:
-            log.info("Suppression failed: Not all rules are matching. Umatching rules: %s" % json.dumps(unmatching_rules))
-            return False, []
-        else:
-            log.info("Suppression successful: All supression rule(s) are matching: %s" % ' '.join(rule_names))
-            return True, rule_names
-    else:
-        log.debug("No suppression rules found for scope '*' or '%s'" % alert)
-        return False, []
+    return context                 
 #
 # Init
 #
@@ -411,6 +354,7 @@ log.debug("Parsed global alert handler settings: %s" % json.dumps(config))
 # Get per incident settings
 #
 incident_config = {}
+incident_config['title']                   = ''
 incident_config['run_alert_script']        = False
 incident_config['alert_script']            = ''
 incident_config['auto_assign']            = False
@@ -520,6 +464,7 @@ if incident_config['run_alert_script']:
 log.info("Creating incident for job_id=%s" % job_id)
 
 eh = EventHandler(sessionKey=sessionKey)
+sh = SuppressionHelper(sessionKey=sessionKey)
 
 ###############################
 # Incident creation starts here
@@ -535,17 +480,41 @@ result_id = getResultId(digest_mode, job_path)
 job['urgency'] = readUrgencyFromResults(results, incident_config['urgency'], incident_id)
 job['priority'] = getPriority(job['impact'], job['urgency'])
 
+# create Context
+job['alert_time'] = alert_time
+job['owner']      = config['default_owner']
+job['name']       = alert
+job['alert']      = alert
+job['app']        = alert_app
+context = createContext(job, incident_config, results)
+
 # Check for incident suppression
 incident_suppressed = False
 incident_status = 'new'
-incident_suppressed, rule_names = checkSuppression(alert, results, { "impact": job['impact'], "urgency": job['urgency'], "priority": job['priority'] })
-
+try:
+    incident_suppressed, rule_names = sh.checkSuppression(alert, context)
+except Exception as e:
+    log.error("Suppression failed due nexpected Error: %s" % (traceback.format_exc()))
 
 if incident_suppressed == True:
     incident_status = 'suppressed'
 
+# Parse Title
+pattern = re.compile(r'\$([^\$]+)')
+for field in re.findall(pattern, incident_config['title']):
+    if "fields" in results and field in results["fields"][0]:
+        if type(results["fields"][0][field]) is list:
+            repl = str(results["fields"][0][field][0])
+        else:
+            repl = str(results["fields"][0][field])
+        incident_config['title'] = incident_config['title'].replace("$"+field+"$", repl)
+        log.debug("Replaced '%s' with '%s' in title." % ("$"+field+"$", repl))
+
+job['title'] = incident_config['title']
+log.info("Parsed title with field values. New title: %s" % job['title'])
+
 # Write incident to collection
-incident_key = createNewIncident(alert_time, incident_id, job_id, result_id, alert, incident_status, ttl, job['impact'], job['urgency'], job['priority'], config['default_owner'], digest_mode, results)
+incident_key = createNewIncident(alert_time, incident_id, job_id, result_id, alert, incident_status, ttl, job['impact'], job['urgency'], job['priority'], config['default_owner'], digest_mode, results, incident_config['title'])
 logCreateEvent(alert, incident_id, job_id, result_id, config['default_owner'], job['urgency'], ttl, alert_time)
 log.info("Incident initial state added to collection for job_id=%s with incident_id=%s. key=%s" % (job_id, incident_id, incident_key))
 
@@ -578,7 +547,7 @@ if incident_config['auto_assign'] and incident_config['auto_assign_owner'] != 'u
 # Auto Previous Resolve - run only once
 if incident_config['auto_previous_resolve'] and incident_suppressed == False:
     log.info("auto_previous_resolve is active for %s. Starting to handle it." % alert)
-    autoPreviousResolve(alert, job_id)
+    autoPreviousResolve(alert, job_id, job['title'])
 
 # Done creating incidents
 

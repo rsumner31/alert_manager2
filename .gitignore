@@ -1,11 +1,7 @@
 __pycache__/
 *.py[cod]
-local/alert_manager.conf
-local/app.conf
-local/collections.conf
-local/datamodels.conf
-local/templates/
-metadata/local.meta
+local/
+local.meta
 .DS_Store
 _work/
 *Test.py
@@ -14,3 +10,12 @@ appserver/src/custom*
 dist/
 *.egg-info/
 .eggs/*
+*.egg
+MANIFEST
+RELEASE-VERSION
+.coverage
+nosetests.xml
+stage/
+dist/
+npm-debug.log
+results.txt
